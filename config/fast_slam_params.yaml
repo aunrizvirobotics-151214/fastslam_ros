@@ -1,0 +1,66 @@
+fast_slam_node:
+  ros__parameters:
+
+    # ── Particle filter ───────────────────────────────────────────────────────
+    num_particles: 50           # raise to 100–200 for better accuracy (slower)
+
+    # ── Motion model  (Thrun Table 5.6 — alpha-based noise) ──────────────────
+    # alpha1 : rotation  noise from rotation
+    # alpha2 : rotation  noise from translation
+    # alpha3 : translation noise from translation
+    # alpha4 : translation noise from rotation
+    # These defaults work well for the Gazebo differential-drive articubot.
+    # Raise if particles spread too slowly after sharp turns.
+    alpha1: 0.1
+    alpha2: 0.1
+    alpha3: 0.1
+    alpha4: 0.1
+
+    # ── Sensor / landmark noise (standard deviations) ─────────────────────────
+    # sensor_noise_range   : σ_r  [metres]  — range measurement noise
+    # sensor_noise_bearing : σ_b  [radians] — bearing measurement noise
+    sensor_noise_range:   0.2
+    sensor_noise_bearing: 0.1
+
+    # ── Landmark extraction ────────────────────────────────────────────────────
+    # Two detectors run in parallel:
+    #   spike_threshold : beam[i] is a landmark if its range is at least this
+    #                     much shorter than BOTH neighbours (pole/pillar detector).
+    #   gap_threshold   : a depth jump ≥ this between consecutive beams gives a
+    #                     corner/edge landmark (nearer endpoint kept).
+    #                     This fires far more often in indoor environments.
+    # max_obs_per_scan  : cap the number of observations fed to the EKF per scan
+    #                     (uniform sub-sample when exceeded). Avoids overloading
+    #                     the correction step with too many weak observations.
+    spike_threshold:    0.3
+    gap_threshold:      0.5
+    max_obs_per_scan:  20
+    max_scan_range:   10.0      # ignore beams longer than this [m]
+    min_scan_range:    0.15     # ignore beams shorter than this [m]
+
+    # ── Data association ──────────────────────────────────────────────────────
+    # assoc_dist : nearest-neighbour threshold [metres].
+    # Observations farther than this from any known landmark create a new one.
+    assoc_dist:    1.0
+    max_landmarks: 100          # per-particle landmark map size cap
+
+    # ── Resampling ────────────────────────────────────────────────────────────
+    # neff_ratio : resample when N_eff < neff_ratio × N  (selective resampling)
+    # 0.5 is a commonly used value. Set to 1.0 to always resample.
+    neff_ratio: 0.5
+
+    # ── Motion gate ───────────────────────────────────────────────────────────
+    # Skip the filter update when accumulated displacement is negligible.
+    # Prevents odometry noise from jittering particles while the robot is still.
+    min_trans: 0.01             # metres
+    min_rot:   0.02             # radians
+
+    # ── Output ────────────────────────────────────────────────────────────────
+    frame_id:     odom          # frame in which all outputs are expressed
+    traj_max_len: 500           # max trajectory history length (best particle)
+
+    # ── Map saving ────────────────────────────────────────────────────────────
+    # Landmark map (best particle) saved as YAML on Ctrl-C/shutdown.
+    # Set auto_save_interval > 0 (seconds) to also save periodically.
+    save_map_path: "~/robotics/ros2_ws/maps/fast_slam_landmarks"
+    # auto_save_interval: 0.0
