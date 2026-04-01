@@ -3,11 +3,8 @@
 """
 FastSLAM 1.0 — ROS 2 node
 ==========================
-Implements the FastSLAM 1.0 algorithm (Montemerlo et al., 2002) for
-landmark-based simultaneous localisation and mapping, ported 1-to-1 from
-the ex07 assignment structure (ex7.py).
 
-Algorithm per odom+scan cycle:
+Algorithm per cycle:
   1. Prediction  — sample new pose from the odometry motion model (r1, t, r2).
   2. Extraction  — detect point landmarks in /scan via spike detection.
   3. Association — nearest-neighbour data association (per particle).
@@ -36,14 +33,14 @@ Landmark observation model (range-bearing):
 
 EKF initialisation (new landmark):
   mu    = inverse_sensor_model(pose, z_range, z_bearing)
-  sigma = H⁻¹ · Q · H⁻ᵀ       (Q = sensor noise covariance)
+  sigma = H⁻¹ · Q · H⁻ᵀ
 
 EKF update (known landmark):
   S = H · sigma · Hᵀ + Q
   K = sigma · Hᵀ · S⁻¹
   mu    ← mu + K · (z − ẑ)
   sigma ← (I − K·H) · sigma
-  w_i  *= N(z; ẑ, S)            (Gaussian likelihood)
+  w_i  *= N(z; ẑ, S)   
 """
 
 import copy
@@ -66,11 +63,6 @@ from visualization_msgs.msg import Marker, MarkerArray
 import tf2_ros
 import tf_transformations
 
-
-# ──────────────────────────────────────────────────────────────────────────────
-#  Maths helpers
-# ──────────────────────────────────────────────────────────────────────────────
-
 def wrap_to_pi(theta: float) -> float:
     return (theta + pi) % (2.0 * pi) - pi
 
@@ -84,11 +76,6 @@ def quat_to_yaw(q) -> float:
     return tf_transformations.euler_from_quaternion(
         [q.x, q.y, q.z, q.w])[2]
 
-
-# ──────────────────────────────────────────────────────────────────────────────
-#  Per-landmark EKF  (mirrors Particle.LandmarkEKF from ex7.py)
-# ──────────────────────────────────────────────────────────────────────────────
-
 class LandmarkEKF:
     """2-D landmark estimate: position mean + 2×2 covariance."""
 
@@ -99,10 +86,6 @@ class LandmarkEKF:
         self.mu       = np.zeros(2)            # [x, y] world frame
         self.sigma    = np.eye(2) * 1e4        # large initial uncertainty
 
-
-# ──────────────────────────────────────────────────────────────────────────────
-#  Particle  (mirrors Particle from ex7.py, adapted for dynamic landmarks)
-# ──────────────────────────────────────────────────────────────────────────────
 
 class Particle:
     """
@@ -138,7 +121,6 @@ class Particle:
         self.landmarks   = {}                 # lm_id (int) → LandmarkEKF
         self._next_id    = 0
 
-    # ── prediction step (Q1 in ex7.py) ───────────────────────────────────────
 
     def prediction_step(self, r1: float, t: float, r2: float) -> None:
         """Sample new pose from noisy odometry motion model (Thrun Table 5.6)."""
@@ -164,7 +146,6 @@ class Particle:
             wrap_to_pi(th + r1_hat + r2_hat),
         ])
 
-    # ── measurement model (Q2 in ex7.py) ─────────────────────────────────────
 
     def _measurement_model(self, lm: LandmarkEKF):
         """
@@ -188,8 +169,6 @@ class Particle:
         ])
         return h, H
 
-    # ── inverse sensor model (used for landmark initialisation) ──────────────
-
     def _inv_sensor_model(self, z_range: float, z_bearing: float) -> np.ndarray:
         """Convert range-bearing obs to world-frame position estimate."""
         x, y, th = self.pose
@@ -197,8 +176,6 @@ class Particle:
             x + z_range * cos(th + z_bearing),
             y + z_range * sin(th + z_bearing),
         ])
-
-    # ── correction step (Q3 in ex7.py) ───────────────────────────────────────
 
     def correction_step(self, raw_obs: list) -> None:
         """
@@ -237,24 +214,19 @@ class Particle:
                 self.landmarks[lm_id] = LandmarkEKF()
 
             lm = self.landmarks[lm_id]
-
-            # --- Initialise new landmark (Q3 A in ex7.py) ---
+            
             if not lm.observed:
                 lm.mu = self._inv_sensor_model(z_r, z_b)
                 _, H  = self._measurement_model(lm)   # Jacobian at init pos
                 H_inv = np.linalg.inv(H)
                 lm.sigma   = H_inv @ self._Q @ H_inv.T
                 lm.observed = True
-                # Weight unchanged for newly initialised landmarks
 
-            # --- EKF correction on known landmark (Q3 B / Q3 C in ex7.py) ---
             else:
                 h_hat, H = self._measurement_model(lm)
 
-                # Innovation covariance  S = H·Σ·Hᵀ + Q
                 S = H @ lm.sigma @ H.T + self._Q
 
-                # Kalman gain  K = Σ·Hᵀ·S⁻¹
                 S_inv = np.linalg.inv(S)
                 K     = lm.sigma @ H.T @ S_inv
 
@@ -275,10 +247,6 @@ class Particle:
 
         self.weight *= joint_likelihood
 
-
-# ──────────────────────────────────────────────────────────────────────────────
-#  Low-variance resampler  (Probabilistic Robotics, p. 109 / ex7.py)
-# ──────────────────────────────────────────────────────────────────────────────
 
 def low_variance_resample(particles: list) -> list:
     """
@@ -308,10 +276,6 @@ def low_variance_resample(particles: list) -> list:
 
     return new_particles
 
-
-# ──────────────────────────────────────────────────────────────────────────────
-#  Landmark extraction from LaserScan
-# ──────────────────────────────────────────────────────────────────────────────
 
 def extract_landmarks(
     ranges: np.ndarray,
@@ -369,10 +333,6 @@ def extract_landmarks(
 
     return obs
 
-
-# ──────────────────────────────────────────────────────────────────────────────
-#  ROS 2 node
-# ──────────────────────────────────────────────────────────────────────────────
 
 class FastSLAMNode(Node):
 
